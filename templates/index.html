@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Job Crawler</title>
+  <link rel="stylesheet" href="/static/style.css?v=10" />
+  <!-- SortableJS for drag & drop -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+</head>
+<body>
+
+<!-- ===== HEADER ===== -->
+<header class="header">
+  <div class="header-left">
+    <span class="logo">🔍 Job Crawler</span>
+  </div>
+  <div class="header-right">
+    <button class="btn btn-primary" id="btn-crawl">▶ Crawl starten</button>
+    <span class="status-badge" id="crawl-status">–</span>
+    <button class="btn btn-ghost" id="btn-add-job">+ Stelle</button>
+    <button class="btn btn-ghost" id="btn-settings">⚙ Einstellungen</button>
+    <div class="view-toggle">
+      <button class="btn btn-ghost active" id="btn-view-table" data-view="table">Tabelle</button>
+      <button class="btn btn-ghost" id="btn-view-kanban" data-view="kanban">Kanban</button>
+      <button class="btn btn-ghost" id="btn-view-ai" data-view="ai-cover">KI-Bewerbung</button>
+    </div>
+  </div>
+</header>
+
+<!-- Crawl-Fortschrittsbalken (nur während Crawl sichtbar) -->
+<div id="crawl-progress-wrap" style="display:none">
+  <div class="crawl-progress-bar"><div class="crawl-progress-fill" id="crawl-progress-fill"></div></div>
+  <div class="crawl-progress-label" id="crawl-progress-label"></div>
+</div>
+
+<!-- ===== SETTINGS MODAL ===== -->
+<div class="modal-overlay" id="modal-settings" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Sucheinstellungen</h2>
+      <button class="btn-close" id="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Locations -->
+      <section class="setting-section">
+        <h3>Orte &amp; Distanz</h3>
+        <div id="locations-list"></div>
+        <button class="btn btn-ghost btn-sm" id="btn-add-location">+ Ort hinzufügen</button>
+      </section>
+
+      <!-- Hard keywords -->
+      <section class="setting-section">
+        <h3>Pflicht-Schlagwörter <span class="hint">(alle müssen matchen)</span></h3>
+        <div id="hard-keywords-list"></div>
+        <button class="btn btn-ghost btn-sm" id="btn-add-hard">+ Schlagwort hinzufügen</button>
+      </section>
+
+      <!-- Soft keywords -->
+      <section class="setting-section">
+        <h3>Wunsch-Schlagwörter <span class="hint">(Priorität 1–10)</span></h3>
+        <div id="soft-keywords-list"></div>
+        <button class="btn btn-ghost btn-sm" id="btn-add-soft">+ Schlagwort hinzufügen</button>
+      </section>
+
+      <!-- Filters -->
+      <section class="setting-section">
+        <h3>Filter</h3>
+        <label class="field-label">Max. Alter der Anzeige (Tage)
+          <input class="input" type="number" id="max-days" min="1" max="365" value="30" />
+        </label>
+        <div style="margin-top:12px">
+          <label class="field-label">
+            Anzeigen löschen nach (Tage) <span class="hint">— 0 = deaktiviert, nur Status "Offen"</span>
+            <input class="input" type="number" id="auto-delete-days" min="0" max="365" value="0" style="margin-top:4px" />
+          </label>
+        </div>
+      </section>
+
+      <!-- Sources -->
+      <section class="setting-section">
+        <h3>Quellen</h3>
+        <label class="checkbox-label">
+          <input type="checkbox" id="src-stepstone" value="stepstone" checked /> StepStone
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="src-bundesagentur" value="bundesagentur" checked /> Bundesagentur f. Arbeit
+        </label>
+        <div style="margin-top:14px">
+          <label class="field-label">StepStone: max. Seiten pro Ort
+            <span class="hint">&nbsp;(25 Stellen/Seite)</span>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+              <input class="input" type="number" id="max-pages-stepstone" min="1" max="20" value="8" style="width:80px" />
+              <span id="crawl-duration-estimate" class="hint"></span>
+            </div>
+          </label>
+        </div>
+      </section>
+
+      <!-- AI -->
+      <section class="setting-section">
+        <h3>KI-Bewerbung</h3>
+        <label class="field-label">Anthropic API-Key
+          <input class="input" type="password" id="ai-api-key" placeholder="sk-ant-…" style="margin-top:4px;font-family:monospace" />
+        </label>
+        <p class="hint" style="margin-top:6px">Guthaben aufladen unter console.anthropic.com → Billing. Getrennt von Claude Pro.</p>
+      </section>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" id="btn-save-config">Speichern</button>
+      <button class="btn btn-ghost" id="btn-cancel-config">Abbrechen</button>
+      <button class="btn btn-ghost" id="btn-rescore" style="margin-left:auto" title="Alle gespeicherten Jobs mit aktuellen Wunsch-Schlagwörtern neu bewerten">↻ Neu bewerten</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== NOTES MODAL ===== -->
+<div class="modal-overlay" id="modal-notes" style="display:none">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h2 id="notes-job-title">Notiz</h2>
+      <button class="btn-close" id="notes-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <textarea class="textarea" id="notes-text" rows="6" placeholder="Deine Notizen zu diesem Job…"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" id="btn-save-notes">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== DESCRIPTION MODAL ===== -->
+<div class="modal-overlay" id="modal-desc" style="display:none">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h2 id="desc-job-title">Beschreibung</h2>
+      <button class="btn-close" id="desc-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="desc-meta" id="desc-meta"></div>
+      <pre class="desc-text" id="desc-text"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ===== CUSTOM JOB MODAL ===== -->
+<div class="modal-overlay" id="modal-custom-job" style="display:none">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h2>Stelle manuell hinzufügen</h2>
+      <button class="btn-close" id="custom-job-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <label class="field-label">Jobtitel *
+          <input class="input" id="cj-title" placeholder="z.B. Werkstudent Data Science" style="margin-top:4px" />
+        </label>
+        <label class="field-label">Firma
+          <input class="input" id="cj-company" placeholder="Firmenname" style="margin-top:4px" />
+        </label>
+        <label class="field-label">Ort
+          <input class="input" id="cj-location" placeholder="Stadt" style="margin-top:4px" />
+        </label>
+        <label class="field-label">URL
+          <input class="input" id="cj-url" placeholder="https://…" type="url" style="margin-top:4px" />
+        </label>
+        <label class="field-label">Notizen
+          <textarea class="input textarea" id="cj-notes" rows="3" style="margin-top:4px"></textarea>
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" id="btn-save-custom-job">Hinzufügen</button>
+      <button class="btn btn-ghost" id="btn-cancel-custom-job">Abbrechen</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== JOB DETAIL MODAL ===== -->
+<div class="modal-overlay" id="modal-job-detail" style="display:none">
+  <div class="modal modal-xl">
+    <div class="modal-header">
+      <div class="jd-header-title">
+        <h2 id="jd-title"></h2>
+        <a id="jd-url" href="#" target="_blank" rel="noopener" class="btn btn-ghost btn-sm" style="flex-shrink:0">↗ Öffnen</a>
+      </div>
+      <button class="btn-close" id="jd-close">✕</button>
+    </div>
+    <div class="jd-body">
+
+      <!-- LEFT: Job info -->
+      <div class="jd-left">
+        <div class="jd-meta-row" id="jd-meta"></div>
+
+        <div class="jd-row">
+          <label class="jd-label">Status
+            <select class="input" id="jd-status" style="margin-top:4px">
+              <option value="new">Offen</option>
+              <option value="interested">Interessiert</option>
+              <option value="applied">Beworben</option>
+              <option value="interview">Gespräch</option>
+              <option value="rejected">Absage</option>
+              <option value="no_fit">Passt nicht</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="jd-dates-row">
+          <label class="jd-label">Beworben
+            <input type="date" class="input jd-date-input" id="jd-applied-date" style="margin-top:4px" />
+          </label>
+          <label class="jd-label">Gespräch
+            <input type="date" class="input jd-date-input" id="jd-interview-date" style="margin-top:4px" />
+          </label>
+          <label class="jd-label">Absage
+            <input type="date" class="input jd-date-input" id="jd-rejected-date" style="margin-top:4px" />
+          </label>
+        </div>
+
+        <div id="jd-keywords" style="margin:4px 0 8px"></div>
+
+        <div class="jd-section">
+          <div class="jd-section-title">Notizen</div>
+          <textarea class="input textarea" id="jd-notes" rows="4" placeholder="Deine Notizen…"></textarea>
+          <div style="display:flex;justify-content:flex-end;margin-top:6px">
+            <button class="btn btn-ghost btn-sm" id="btn-jd-save-notes">Notizen speichern</button>
+          </div>
+        </div>
+
+        <div class="jd-section">
+          <div class="jd-section-title">Beschreibung</div>
+          <pre class="desc-text" id="jd-description" style="max-height:220px"></pre>
+        </div>
+      </div>
+
+      <!-- RIGHT: Cover letters -->
+      <div class="jd-right">
+        <div class="jd-section-title" style="margin-bottom:10px">Bewerbungsschreiben</div>
+        <div id="jd-cover-letters"></div>
+        <div class="jd-no-cl" id="jd-no-cl" style="display:none">
+          Noch keine gespeicherten Schreiben.<br/>Im Tab KI-Bewerbung generieren und speichern.
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ===== MAIN CONTENT ===== -->
+<main class="main">
+
+  <!-- TABLE VIEW -->
+  <div id="view-table" class="view active">
+    <div class="toolbar">
+      <input class="input search-input" type="search" id="search-input" placeholder="Titel, Firma… filtern" />
+      <div class="filter-chips" id="filter-status-chips">
+        <button class="filter-chip active" data-status="">Alle</button>
+        <button class="filter-chip" data-status="new">Offen</button>
+        <button class="filter-chip" data-status="interested">Interessiert</button>
+        <button class="filter-chip" data-status="applied">Beworben</button>
+        <button class="filter-chip" data-status="interview">Gespräch</button>
+        <button class="filter-chip" data-status="rejected">Absage</button>
+        <button class="filter-chip" data-status="no_fit">Passt nicht</button>
+      </div>
+      <select class="input" id="filter-source">
+        <option value="">Alle Quellen</option>
+        <option value="stepstone">StepStone</option>
+        <option value="bundesagentur">Bundesagentur</option>
+        <option value="custom">Eigener Eintrag</option>
+      </select>
+    </div>
+
+    <div class="table-wrapper">
+      <table class="job-table" id="job-table">
+        <thead>
+          <tr>
+            <th class="col-score sortable" data-col="score">Score ↓</th>
+            <th class="col-title sortable" data-col="title">Titel</th>
+            <th class="col-company sortable" data-col="company">Firma</th>
+            <th class="col-location">Ort</th>
+            <th class="col-date sortable" data-col="published_date">Datum</th>
+            <th class="col-source">Quelle</th>
+            <th class="col-keywords">Matched</th>
+            <th class="col-status">Status</th>
+            <th class="col-actions">Aktionen</th>
+          </tr>
+        </thead>
+        <tbody id="job-tbody"></tbody>
+      </table>
+      <div class="empty-state" id="empty-state" style="display:none">
+        Keine Jobs gefunden. Starte einen Crawl oder passe die Filter an.
+      </div>
+    </div>
+  </div>
+
+  <!-- KANBAN VIEW -->
+  <div id="view-kanban" class="view">
+    <div class="kanban-layout">
+
+      <div class="kanban-board">
+        <div class="kanban-col" data-status="new">
+          <div class="kanban-header kanban-new">Offen <span class="count" id="cnt-new">0</span></div>
+          <div class="kanban-list sortable-list" id="kl-new"></div>
+        </div>
+        <div class="kanban-col" data-status="interested">
+          <div class="kanban-header kanban-interested">Interessiert <span class="count" id="cnt-interested">0</span></div>
+          <div class="kanban-list sortable-list" id="kl-interested"></div>
+        </div>
+        <div class="kanban-col" data-status="applied">
+          <div class="kanban-header kanban-applied">Beworben <span class="count" id="cnt-applied">0</span></div>
+          <div class="kanban-list sortable-list" id="kl-applied"></div>
+        </div>
+        <div class="kanban-col" data-status="interview">
+          <div class="kanban-header kanban-interview">Gespräch <span class="count" id="cnt-interview">0</span></div>
+          <div class="kanban-list sortable-list" id="kl-interview"></div>
+        </div>
+        <div class="kanban-col" data-status="rejected">
+          <div class="kanban-header kanban-rejected">Absage <span class="count" id="cnt-rejected">0</span></div>
+          <div class="kanban-list sortable-list" id="kl-rejected"></div>
+        </div>
+        <div class="kanban-col" data-status="no_fit">
+          <div class="kanban-header kanban-no-fit">Passt nicht <span class="count" id="cnt-no_fit">0</span></div>
+          <div class="kanban-list sortable-list" id="kl-no_fit"></div>
+        </div>
+      </div>
+
+      <div class="activity-sidebar">
+        <div class="activity-calendar" id="activity-calendar"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- AI COVER LETTER VIEW -->
+  <div id="view-ai-cover" class="view">
+    <div id="ai-top-job" class="ai-top-job" style="display:none">
+      <span class="ai-top-job-label">Bewerbung für</span>
+      <span id="ai-top-job-text"></span>
+    </div>
+    <div class="ai-layout">
+
+      <!-- ── LEFT: Inputs ── -->
+      <div class="ai-inputs">
+
+        <!-- Upload -->
+        <div class="ai-section" data-section="upload">
+          <div class="ai-section-header">
+            <span class="ai-section-title">📎 Dokumente hochladen</span>
+            <span class="ai-chevron">▼</span>
+          </div>
+          <div class="ai-section-body">
+            <div class="ai-upload-area" id="ai-upload-area">
+              <input type="file" id="ai-file-input" multiple accept=".pdf,.docx,.txt" style="display:none" />
+              <span class="ai-upload-icon">📄</span>
+              <span>PDF, DOCX oder TXT – klicken oder ziehen</span>
+            </div>
+            <div class="ai-uploaded-files" id="ai-uploaded-files"></div>
+          </div>
+        </div>
+
+        <!-- Role Prompting -->
+        <div class="ai-section" data-section="role">
+          <div class="ai-section-header">
+            <span class="ai-section-title">🎭 Role Prompting</span>
+            <span class="ai-chevron">▼</span>
+          </div>
+          <div class="ai-section-body">
+            <textarea class="input textarea ai-field" id="ai-role-prompt" rows="4"
+              placeholder="Agiere als professioneller Karriereberater und Copywriter mit Erfahrung im deutschen Arbeitsmarkt. Schreibe präzise, überzeugend und auf den Punkt."></textarea>
+          </div>
+        </div>
+
+        <!-- Meine Daten -->
+        <div class="ai-section" data-section="mydata">
+          <div class="ai-section-header">
+            <span class="ai-section-title">👤 Meine Daten</span>
+            <span class="ai-chevron">▼</span>
+          </div>
+          <div class="ai-section-body">
+            <textarea class="input textarea ai-field" id="ai-my-data" rows="10"
+              placeholder="Lebenslauf, Studium, Projekte, IT-Skills, Erfahrungen…"></textarea>
+          </div>
+        </div>
+
+        <!-- Stellenausschreibung -->
+        <div class="ai-section" data-section="job">
+          <div class="ai-section-header">
+            <span class="ai-section-title">💼 Stellenausschreibung</span>
+            <div class="ai-section-header-actions" onclick="event.stopPropagation()">
+              <select class="input ai-job-pull-select" id="ai-job-pull">
+                <option value="">Von Interessiert laden…</option>
+              </select>
+            </div>
+            <span class="ai-chevron">▼</span>
+          </div>
+          <div class="ai-section-body">
+            <textarea class="input textarea ai-field" id="ai-job-desc" rows="8"
+              placeholder="Hier die Stellenausschreibung einfügen oder oben einen Interessiert-Job auswählen…"></textarea>
+          </div>
+        </div>
+
+        <!-- Anweisungen -->
+        <div class="ai-section" data-section="instructions">
+          <div class="ai-section-header">
+            <span class="ai-section-title">📝 Anweisungen für den Text</span>
+            <span class="ai-chevron">▼</span>
+          </div>
+          <div class="ai-section-body">
+            <textarea class="input textarea ai-field" id="ai-instructions" rows="8"
+              placeholder="Schreibe ein Anschreiben mit 3 Absätzen:&#10;1. Einstieg: Warum diese Stelle, warum dieses Unternehmen&#10;2. Hauptteil: Meine Stärken und Passung zur Stelle&#10;3. Abschluss: Motivation, Einladung zum Gespräch"></textarea>
+          </div>
+        </div>
+
+        <!-- Generelle Vorgaben -->
+        <div class="ai-section" data-section="rules">
+          <div class="ai-section-header">
+            <span class="ai-section-title">⚙ Generelle Vorgaben</span>
+            <span class="ai-chevron">▼</span>
+          </div>
+          <div class="ai-section-body">
+            <textarea class="input textarea ai-field" id="ai-rules" rows="4"
+              placeholder="Nutze keine EM-Dashes! Kein ':' am Ende von Sätzen. Deutsche Sprache. Formeller aber nicht steifer Ton. Max. 1 DIN-A4-Seite."></textarea>
+          </div>
+        </div>
+
+        <!-- Generate bar -->
+        <div class="ai-generate-bar">
+          <div id="ai-job-badge" class="ai-job-badge" style="display:none"></div>
+          <select class="input" id="ai-model">
+            <option value="claude-sonnet-4-6">Sonnet 4.6 – Empfohlen ($3/$15 /MTok)</option>
+            <option value="claude-opus-4-8">Opus 4.8 – Bestes Modell ($5/$25 /MTok)</option>
+            <option value="claude-haiku-4-5">Haiku 4.5 – Günstigst ($1/$5 /MTok)</option>
+          </select>
+          <label class="ai-thinking-toggle" title="Extended Thinking — höhere Qualität, deutlich teurer">
+            <input type="checkbox" id="ai-thinking" />
+            <span>Thinking</span>
+          </label>
+          <button class="btn btn-primary" id="btn-ai-generate">✨ Generieren</button>
+        </div>
+
+      </div><!-- /ai-inputs -->
+
+      <!-- ── RIGHT: Output ── -->
+      <div class="ai-output" id="ai-output-panel">
+
+        <!-- Placeholder -->
+        <div class="ai-output-placeholder" id="ai-output-placeholder">
+          <span style="font-size:40px">✨</span>
+          <p>Felder ausfüllen und<br/><strong>Generieren</strong> klicken</p>
+        </div>
+
+        <!-- Result (hidden until first generation) -->
+        <div class="ai-result-section" id="ai-result-section" style="display:none">
+          <div class="ai-result-header">
+            <span class="ai-result-title">✨ Bewerbungsschreiben<span id="ai-result-job" class="ai-result-job"></span></span>
+            <div style="display:flex;gap:6px;align-items:center">
+              <button class="btn btn-ghost btn-sm" id="btn-ai-save" title="Für aktuelle Stelle speichern">💾 Speichern</button>
+              <button class="btn btn-ghost btn-sm" id="btn-spell-check" title="KI-Rechtschreibprüfung (gleiches Modell, kein Thinking)">✓ Rechtschreibung</button>
+              <button class="btn btn-ghost btn-sm" id="btn-ai-copy">⧉ Kopieren</button>
+              <button class="btn btn-ghost btn-sm" id="btn-ai-reset" title="Ergebnis zurücksetzen">↺ Neu</button>
+            </div>
+          </div>
+          <div class="ai-diff-toolbar" id="ai-diff-toolbar" style="display:none">
+            <span class="diff-count"></span>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-sm btn-success" id="btn-diff-accept-all">✓ Alle übernehmen</button>
+              <button class="btn btn-sm btn-ghost"   id="btn-diff-reject-all">✗ Alle ablehnen</button>
+            </div>
+          </div>
+          <div class="ai-result-text" id="ai-result-text" contenteditable="false" spellcheck="false"></div>
+        </div>
+
+        <!-- Token info -->
+        <div class="ai-token-info" id="ai-token-info" style="display:none"></div>
+
+        <!-- Chat continuation -->
+        <div class="ai-chat-section" id="ai-chat-section" style="display:none">
+          <div class="ai-chat-header">Chat – Schreiben verfeinern <span style="font-weight:400;font-size:10px">(Strg+Enter zum Senden)</span></div>
+          <div class="ai-chat-history" id="ai-chat-history"></div>
+          <div class="ai-chat-input-area">
+            <textarea class="input textarea ai-chat-input" id="ai-chat-input" rows="3"
+              placeholder="Änderungen oder Nachfragen formulieren…"></textarea>
+            <button class="btn btn-primary" id="btn-ai-chat-send">Senden</button>
+          </div>
+        </div>
+
+      </div><!-- /ai-output -->
+
+    </div><!-- /ai-layout -->
+  </div><!-- /view-ai-cover -->
+
+</main>
+
+<script src="/static/script.js?v=10"></script>
+</body>
+</html>
