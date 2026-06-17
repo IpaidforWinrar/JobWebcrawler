@@ -67,6 +67,14 @@ async function saveConfig() {
   if ($("src-stepstone").checked)     sources.push("stepstone");
   if ($("src-bundesagentur").checked) sources.push("bundesagentur");
 
+  const synonyms = {};
+  document.querySelectorAll(".synonym-block").forEach(block => {
+    const rowId  = block.dataset.kwRowId;
+    const kwInput = document.getElementById(rowId)?.querySelector(".hard-kw-input");
+    const kw = kwInput?.value.trim().toLowerCase();
+    if (kw) synonyms[kw] = [...block.querySelectorAll(".synonym-tag-word")].map(el => el.textContent.trim());
+  });
+
   const apiKeyInput = $("ai-api-key").value.trim();
   const maxPagesSS  = parseInt($("max-pages-stepstone").value) || 8;
   config = {
@@ -78,6 +86,7 @@ async function saveConfig() {
     sources,
     auto_delete_days:     parseInt($("auto-delete-days").value) || 0,
     anthropic_api_key:    apiKeyInput || config.anthropic_api_key || "",
+    synonyms,
   };
 
   await api("/api/config", { method: "POST", body: JSON.stringify(config) });
@@ -90,10 +99,12 @@ function renderConfigModal() {
   locList.innerHTML = "";
   (config.locations || []).forEach(l => addLocationRow(l.city, l.distance_km));
 
-  // Hard keywords
+  // Hard keywords + synonyms
   const hardList = $("hard-keywords-list");
   hardList.innerHTML = "";
-  (config.hard_keywords || []).forEach(kw => addHardKeywordRow(kw));
+  $("synonyms-list").innerHTML = "";
+  const syns = config.synonyms || {};
+  (config.hard_keywords || []).forEach(kw => addHardKeywordRow(kw, syns[kw.toLowerCase()] || [kw.toLowerCase()]));
 
   // Soft keywords
   const softList = $("soft-keywords-list");
@@ -124,14 +135,74 @@ function addLocationRow(city = "", dist = 30) {
   $("locations-list").appendChild(row);
 }
 
-function addHardKeywordRow(kw = "") {
+let _hardKwCounter = 0;
+
+function addHardKeywordRow(kw = "", synonyms = []) {
+  const rowId = `hard-kw-row-${++_hardKwCounter}`;
   const row = document.createElement("div");
   row.className = "kw-row";
+  row.id = rowId;
   row.innerHTML = `
     <input class="input hard-kw-input" placeholder="Pflicht-Schlagwort" value="${esc(kw)}" />
     <button class="remove-btn" title="Entfernen">✕</button>`;
-  row.querySelector(".remove-btn").onclick = () => row.remove();
+
+  const input = row.querySelector(".hard-kw-input");
+  input.addEventListener("input", () => {
+    const block = document.querySelector(`.synonym-block[data-kw-row-id="${rowId}"]`);
+    if (block) block.querySelector(".synonym-block-label").textContent = input.value || "–";
+  });
+
+  row.querySelector(".remove-btn").onclick = () => {
+    document.querySelector(`.synonym-block[data-kw-row-id="${rowId}"]`)?.remove();
+    row.remove();
+  };
+
   $("hard-keywords-list").appendChild(row);
+  addSynonymBlock(rowId, kw, synonyms.length ? synonyms : (kw ? [kw.toLowerCase()] : []));
+}
+
+function addSynonymBlock(rowId, kw, synonyms = []) {
+  const block = document.createElement("div");
+  block.className = "synonym-block";
+  block.dataset.kwRowId = rowId;
+
+  const label = document.createElement("div");
+  label.className = "synonym-block-label";
+  label.textContent = kw || "–";
+  block.appendChild(label);
+
+  const tagsWrap = document.createElement("div");
+  tagsWrap.className = "synonym-tags-wrap";
+
+  synonyms.forEach(syn => addSynonymTag(tagsWrap, syn));
+
+  const addInput = document.createElement("input");
+  addInput.className = "input synonym-add-input";
+  addInput.placeholder = "+ Synonym hinzufügen";
+  addInput.addEventListener("keydown", e => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      const val = addInput.value.trim().toLowerCase();
+      if (val) { addSynonymTag(tagsWrap, val, addInput); addInput.value = ""; }
+    }
+  });
+  addInput.addEventListener("blur", () => {
+    const val = addInput.value.trim().toLowerCase();
+    if (val) { addSynonymTag(tagsWrap, val, addInput); addInput.value = ""; }
+  });
+
+  tagsWrap.appendChild(addInput);
+  block.appendChild(tagsWrap);
+  $("synonyms-list").appendChild(block);
+}
+
+function addSynonymTag(tagsWrap, word, beforeEl = null) {
+  const tag = document.createElement("span");
+  tag.className = "synonym-tag";
+  tag.innerHTML = `<span class="synonym-tag-word">${esc(word)}</span><button class="remove-syn-btn" title="Entfernen">✕</button>`;
+  tag.querySelector(".remove-syn-btn").onclick = () => tag.remove();
+  if (beforeEl) tagsWrap.insertBefore(tag, beforeEl);
+  else tagsWrap.appendChild(tag);
 }
 
 function addSoftKeywordRow(kw = "", rating = 5, banned = []) {

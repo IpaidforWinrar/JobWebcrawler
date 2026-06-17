@@ -340,6 +340,56 @@ tr:hover .copy-url-btn { opacity: 1; }
 }
 .remove-ban-chip:hover { opacity: 1; }
 
+/* Synonym blocks */
+.synonym-block {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: var(--surface2);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+.synonym-block-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  text-transform: lowercase;
+  letter-spacing: .3px;
+}
+.synonym-tags-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.synonym-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.remove-syn-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0 0 0 2px;
+  font-size: 10px;
+  opacity: 0.6;
+  line-height: 1;
+}
+.remove-syn-btn:hover { opacity: 1; color: var(--red); }
+.synonym-add-input {
+  height: 26px !important;
+  padding: 2px 8px !important;
+  font-size: 12px !important;
+  width: 180px;
+}
+
 /* Source badge */
 .src-badge {
   padding: 2px 8px;

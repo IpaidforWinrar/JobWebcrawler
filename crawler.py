@@ -25,8 +25,6 @@ from typing import Generator
 import requests
 from bs4 import BeautifulSoup
 
-from config import HARD_KEYWORD_SYNONYMS
-
 logger = logging.getLogger(__name__)
 
 
@@ -89,15 +87,13 @@ def _parse_iso_date(raw: str | None) -> str:
 # Keyword helpers
 # ---------------------------------------------------------------------------
 
-def _synonyms_for(keyword: str) -> list[str]:
-    return HARD_KEYWORD_SYNONYMS.get(keyword.lower(), [keyword.lower()])
-
-
-def matches_hard_keywords(text: str, hard_keywords: list[str]) -> bool:
+def matches_hard_keywords(text: str, hard_keywords: list[str], synonyms: dict | None = None) -> bool:
     """ALL hard keywords (or one synonym each) must appear — AND logic."""
     t = text.lower()
     for kw in hard_keywords:
-        if not any(syn in t for syn in _synonyms_for(kw)):
+        kl = kw.lower()
+        syns = (synonyms or {}).get(kl) or [kl]
+        if not any(syn.lower() in t for syn in syns):
             return False
     return True
 
@@ -239,6 +235,7 @@ def crawl_stepstone(
     max_days: int,
     max_pages: int = 8,
     on_progress=None,
+    synonyms: dict | None = None,
 ) -> Generator[dict, None, None]:
 
     session = _make_session()
@@ -288,12 +285,12 @@ def crawl_stepstone(
                 # full description — not just the short listing snippet.
                 # Hard-keyword check on snippet is used only as a quick pre-filter
                 # to skip obvious non-matches without making a network request.
-                if not matches_hard_keywords(base_text, hard_keywords):
+                if not matches_hard_keywords(base_text, hard_keywords, synonyms):
                     # Quick pre-check failed — still try detail in case snippet missed it
                     time.sleep(random.uniform(0.8, 1.5))
                     detail_desc = _fetch_stepstone_description(session, full_url)
                     full_text   = f"{base_text} {detail_desc}"
-                    if not matches_hard_keywords(full_text, hard_keywords):
+                    if not matches_hard_keywords(full_text, hard_keywords, synonyms):
                         logger.debug("StepStone SKIP (hard kw miss): %s", title[:60])
                         time.sleep(random.uniform(0.3, 0.8))
                         continue
@@ -378,6 +375,7 @@ def crawl_bundesagentur(
     max_days: int,
     max_pages: int = 10,
     on_progress=None,
+    synonyms: dict | None = None,
 ) -> Generator[dict, None, None]:
 
     for loc in locations:
@@ -431,7 +429,7 @@ def crawl_bundesagentur(
                 detail    = _fetch_ba_description(refnr)
                 full_text = f"{base_text} {detail}"
 
-                if not matches_hard_keywords(full_text, hard_keywords):
+                if not matches_hard_keywords(full_text, hard_keywords, synonyms):
                     logger.debug("BA SKIP (hard kw miss): %s", title[:60])
                     time.sleep(0.3)
                     continue
@@ -475,17 +473,19 @@ def run_crawl(config: dict, on_progress=None) -> list[dict]:
     max_days      = config["max_days_online"]
     sources       = config.get("sources", ["stepstone", "bundesagentur"])
     max_pages_ss  = config.get("max_pages_stepstone", 8)
+    synonyms      = config.get("synonyms") or {}
 
     collected: dict[str, dict] = {}
 
     if "stepstone" in sources:
         for job in crawl_stepstone(hard, soft, locations, max_days,
-                                   max_pages=max_pages_ss, on_progress=on_progress):
+                                   max_pages=max_pages_ss, on_progress=on_progress,
+                                   synonyms=synonyms):
             collected[job["id"]] = job
 
     if "bundesagentur" in sources or "indeed" in sources:
         for job in crawl_bundesagentur(hard, soft, locations, max_days,
-                                       on_progress=on_progress):
+                                       on_progress=on_progress, synonyms=synonyms):
             if job["id"] not in collected:
                 collected[job["id"]] = job
 

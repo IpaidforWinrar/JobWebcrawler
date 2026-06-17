@@ -9,7 +9,7 @@ from datetime import datetime
 from flask import Flask, jsonify, render_template, request, Response, stream_with_context
 
 import database as db
-from config import DEFAULT_CONFIG
+from config import DEFAULT_CONFIG, HARD_KEYWORD_SYNONYMS
 from crawler import run_crawl
 
 try:
@@ -51,6 +51,12 @@ def index():
 @app.route("/api/config", methods=["GET"])
 def get_config():
     cfg = db.load_config() or DEFAULT_CONFIG
+    synonyms = cfg.get("synonyms") or {}
+    for kw in cfg.get("hard_keywords", []):
+        kl = kw.lower()
+        if kl not in synonyms:
+            synonyms[kl] = HARD_KEYWORD_SYNONYMS.get(kl, [kl])
+    cfg["synonyms"] = synonyms
     return jsonify(cfg)
 
 
